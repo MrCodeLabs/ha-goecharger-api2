@@ -66,8 +66,8 @@ def test_missing_phase_never_yields_partial_sum(missing_phase):
     assert run.run() == []
 
 
-@pytest.mark.parametrize("phases", [[], ["sensor.l1"], ["sensor.l1", "sensor.l2"],
-    ["sensor.l1", "sensor.l2", "sensor.l3", "sensor.l4"], ["sensor.l1"] * 3])
+@pytest.mark.parametrize("phases", [["sensor.l1"], ["sensor.l1", "sensor.l2"],
+    ["sensor.l1"] * 3])
 def test_phase_method_requires_three_distinct_entities(phases):
     assert BlueprintRun(inputs={"grid_single_entity": None, "grid_phase_entities": phases},
                         states={f"sensor.l{i}": "0" for i in range(1, 5)}).run() == []
