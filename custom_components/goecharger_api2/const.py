@@ -23,7 +23,7 @@ DOMAIN: Final = "goecharger_api2"
 ISSUE_URL: Final = "https://github.com/marq24/ha-goecharger-api2/issues"
 
 CONFIG_VERSION: Final = 2
-CONFIG_MINOR_VERSION: Final = 0
+CONFIG_MINOR_VERSION: Final = 1
 
 STARTUP_MESSAGE: Final = f"""
 -------------------------------------------------------------------
@@ -36,6 +36,7 @@ If you have any issues with this you need to open an issue here:
 
 SERVICE_SET_PV_DATA: Final = "set_pv_data"
 SERVICE_STOP_CHARGING: Final = "stop_charging"
+SERVICE_SET_TEMPORARY_CURRENT: Final = "set_temporary_current_limit"
 CONF_11KWLIMIT: Final = "limit_to_11kw"
 CONF_INTEGRATION_TYPE = "integration_type"
 
@@ -56,6 +57,7 @@ class ExtButtonEntityDescription(ButtonEntityDescription):
 
 @dataclass(frozen=True)
 class ExtNumberEntityDescription(NumberEntityDescription):
+    tag: Tag | None = None
     write_zero_as_null: bool | None = None
     handle_as_float: bool | None = None
     factor: int | None = None
@@ -542,8 +544,8 @@ NUMBER_SENSORS = [
     # pgt
     ExtNumberEntityDescription(
         key=Tag.PGT.key,
-        native_max_value=5000,
-        native_min_value=-5000,
+        native_max_value=35000,
+        native_min_value=-35000,
         native_step=1,
         #entity_category=EntityCategory.CONFIG,
         native_unit_of_measurement=UnitOfPower.WATT,
@@ -693,6 +695,19 @@ NUMBER_SENSORS = [
         device_class=NumberDeviceClass.DURATION,
         icon="mdi:ab-testing",
         entity_registry_enabled_default=False
+    ),
+    ExtNumberEntityDescription(
+        tag=Tag.TCL,
+        key=Tag.TCL.key,
+        check_16a_limit=True,
+        native_min_value=6,
+        native_max_value=32,
+        native_step=1,
+        mode=NumberMode.BOX,
+        native_unit_of_measurement=UnitOfElectricCurrent.AMPERE,
+        device_class=NumberDeviceClass.CURRENT,
+        icon="mdi:current-ac",
+        entity_registry_enabled_default=False,
     ),
     # zfo
     ExtNumberEntityDescription(
@@ -2324,8 +2339,8 @@ CONTROLLER_BUTTONS = [
         entity_registry_enabled_default=True
     ),
 ]
-CONTROLLER_NUMBER_SENSORS = [
-]
+CONTROLLER_NUMBER_SENSORS = []
+
 CONTROLLER_SELECT_SENSORS = [
     ExtSelectEntityDescription(
        key=Tag.IPS.key,

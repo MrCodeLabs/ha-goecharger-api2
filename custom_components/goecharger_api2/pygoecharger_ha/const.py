@@ -20,21 +20,21 @@ FILTER_CARDS_ALL_FWV60: Final = f"{FILTER_CARDS_ID_FWV60},{FILTER_CARDS_NAME_FWV
 
 
 FILTER_SYSTEMS: Final = "oem,sse,typ,var,hai,cae"
-FILTER_VERSIONS_NOCARDS: Final = f"ccrv,typ,log,fwc,fwv,var,cll,adi"
+FILTER_VERSIONS_NOCARDS: Final = f"ccrv,typ,log,fwc,fwv,var"
 FILTER_VERSIONS: Final = f"{FILTER_VERSIONS_NOCARDS},{FILTER_CARDS_ID_CLASSIC},{FILTER_CARDS_ID_FWV60}"
-FILTER_MIN_STATES: Final = "car,modelStatus,err,nrg,tma,trx"
+FILTER_MIN_STATES: Final = "car,modelStatus,err,nrg,tcl,tma,trx"
 FILTER_IDS_ADDON: Final = ",pakku,ppv,pgrid"
 
 # rbt: is the reboot time - and "looks like", that all other timestamps use the rbt "as" start point
 FILTER_TIMES_ADDON: Final = ",rbt,fsptws,inva,lbp,lccfc,lccfi,lcctc,lfspt,lmsc,lpsc,lcs"
 
-FILTER_ALL_STATES: Final = "alw,acu,adi,amt,atp,awcp,car,{CARDS_ENERGY_FILTER},cbl,ccu,ccw,cdi,cll,cus,ctrls,deltaa,deltap,di1,err,eto,ffb,fhz,fsp,fsptws,inva,lbp,lccfc,lccfi,lcctc,lck,lfspt,lmsc,loa,lpsc,mcpea,mmp,modelStatus,nif,nrg,pakku,pgrid,pha,pnp,ppv,pvopt_averagePAkku,pvopt_averagePGrid,pvopt_averagePPv,pwm,rbc,rbt,rfb,rssi,rst,tlf,tls,tma,tpa,trx,wh,wsms,wst"
+FILTER_ALL_STATES: Final = "alw,acu,adi,amt,atp,awcp,car,{CARDS_ENERGY_FILTER},cbl,ccu,ccw,cdi,cll,cus,ctrls,deltaa,deltap,di1,err,eto,ffb,fhz,fsp,fsptws,inva,lbp,lccfc,lccfi,lcctc,lck,lfspt,lmsc,loa,lpsc,mcpea,mmp,modelStatus,nif,nrg,pakku,pgrid,pha,pnp,ppv,pvopt_averagePAkku,pvopt_averagePGrid,pvopt_averagePPv,pwm,rbc,rbt,rfb,rssi,rst,tcl,tlf,tls,tma,tpa,trx,wh,wsms,wst"
 FILTER_ALL_CONFIG: Final = "acp,acs,ama,amp,ara,ate,att,awc,awe,awp,bac,{CARDS_ID_FILTER},cch,cco,cfi,cid,clp,cmse,ct,cwc,cwe,dwo,esk,fmt,fna,frc,frm,fst,fup,fzf,hai,hsa,iso2ena,lbr,lmo,loe,lof,log,lop,lot,loty,lse,map,mca,mci,mcpd,mptwt,mpwst,nmo,ocppe,pgt,po,psh,psm,psmd,rdbf,rdbs,rdef,rdes,rdre,rdpl,sch_satur,sch_sund,sch_week,sdp,sh,spl3,su,sua,sumd,tds,tof,upo,ust,zfo"
 
 FILTER_NOT_USED: Final = "mcc,mcca,mce,mcr,mcs,mcu,men,mlr,mlra,mqcn,mqg,mqss,msb,msp,msr,mtp,ocppai,ocppi,rdbfe,rdbse,rdefe,rdese,rdree,rdple"
 
 # found api-keys that are not documented (yet) ?!
-FILTER_UNKNOWN_COMON: Final = "aus,ccd,cle,clea,cmmr,cmp,cms,csa,data,die,dii,dll,hla,isgo,la1,la3,lbl,lopr,lrc,lri,lrr,lwf,ocppao,ocppcm,ocppcs,ocppf,ocppla,ocpplo,ocppti,pdi,pgr,rde,smd,tcl,tsi,tzt,ufa,ufe,ufm,ufs,wbw,wda,wsl"
+FILTER_UNKNOWN_COMON: Final = "aus,ccd,cle,clea,cmmr,cmp,cms,csa,data,die,dii,dll,hla,isgo,la1,la3,lbl,lopr,lrc,lri,lrr,lwf,ocppao,ocppcm,ocppcs,ocppf,ocppla,ocpplo,ocppti,pdi,pgr,rde,smd,tsi,tzt,ufa,ufe,ufm,ufs,wbw,wda,wsl"
 
 FILTER_UNKNOWN_FW59_X_BETA: Final = "bar,dsrc,evt,gmtr,gsa,lto,mhe,mht,ocppdp,ocppmp,ocpptp,orsch,pco,rdbfe,rdbse,rdefe,rdese,rdple,rdree,rmaf,rmav,rmif,rmiv,rsa,rsre,rsrr,tab"
 FILTER_UNKNOWN_FW56_2_BETA: Final = "bar,gmtr,gsa,mhe,mht,pco,rmaf,rmav,rmif,rmiv,rsa,rsre,rsrr"
@@ -110,10 +110,13 @@ CT_VALUES_MAP: Final = {
 
 TRANSLATIONS: Final = {
     "de": {
+        "heavy_user_title": "Möchtest Du nicht die Entwicklung unterstützen?",
+        "heavy_user_msg": "Du hast mehr als 8 aktive 'go-e APIv2 Connect' Integrationseinträge. Als intensiver Nutzer solltest Du Dir überlegen, ob Du die Weiterentwicklung und Pflege nicht unterstützen möchtest?\n\nBitte besuche das [Projekt go-e APIv2 Connect auf GitHub](https://github.com/marq24/ha-goecharger-api2/blob/main/docs/SUPPORT.md), um mehr zu erfahren.\n\nDanke für Deine Aufmerksamkeit @marq24",
         "coord_null_data": "Es konnten keine Daten abgerufen werden. Bitte prüfe Dein Home Assistant System Protokoll auf mögliche Fehlermeldungen der Integration.",
         "coord_no_device_data": "Es konnten keine Daten zu Deinem konfigurierten Gerät abgerufen werden. Bitte prüfe Dein Home Assistant System Protokoll auf mögliche Fehlermeldungen der Integration.",
         "websocket_start_failed": "Der Websocket konnte innerhalb von einer Minute nicht gestartet werden. Bitte prüfe Dein Home Assistant System Protokoll auf mögliche Fehlermeldungen der Integration.",
-
+        "ws_start_task_is_none": "start_websocket_and_wait_for_first_data(): WebSocket-Verbindungs-Task konnte nicht erstellt werden!",
+        "ws_fetch_essential_data_timed_out": "start_websocket_and_wait_for_first_data(): Zwingend erforderliche Daten nicht verfügbar - Timeout!",
         "car": {
             0: "Unbekannt/Fehler",
             1: "Inaktiv/Frei",
@@ -283,9 +286,13 @@ TRANSLATIONS: Final = {
         "cll_unsymetrycurrentlimit": "Stromlimit Asymmetrie"
     },
     "en": {
+        "heavy_user_title": "Wouldn't you like to support the development ?",
+        "heavy_user_msg": "You have more than 8 active 'go-e APIv2 Connect' integration entries. As a heavy user, you should consider supporting its further development and maintenance.\n\nPlease visit the [project go-e APIv2 Connect at GitHub](https://github.com/marq24/ha-goecharger-api2/blob/main/docs/SUPPORT.md) to learn more.\n\nThanks for your attention @marq24",
         "coord_null_data": "Coordinator could not provided any data. Please check your Home Assistant system log for possible error messages.",
         "coord_no_device_data": "Coordinator could not fetch essential information from your configured device. Please check your Home Assistant system log for possible error messages.",
         "websocket_start_failed": "The Websocket could not be started within one minute. Please check your Home Assistant system log for possible error messages.",
+        "ws_start_task_is_none": "start_websocket_and_wait_for_first_data(): Could not create websocket connect task!",
+        "ws_fetch_essential_data_timed_out": "start_websocket_and_wait_for_first_data(): Could not fetch essential data - Timeout",
 
         "car": {
             0: "Unknown/Error",
