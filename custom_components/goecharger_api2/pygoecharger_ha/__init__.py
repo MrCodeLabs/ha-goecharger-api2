@@ -573,7 +573,7 @@ class GoeChargerApiV2Bridge:
                     try:
                         r_json = await res.json()
                         if r_json is not None and len(r_json) > 0:
-                            if a_result_key in r_json and r_json[a_result_key]:
+                            if a_result_key in r_json and r_json[a_result_key] is True:
                                 # ignore 'force-update' for 'ids' (PV surplus charging)
                                 if a_result_key != Tag.IDS.key:
                                     self._LAST_CONFIG_UPDATE_TS = 0
