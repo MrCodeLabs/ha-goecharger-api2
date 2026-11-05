@@ -2338,18 +2338,6 @@ CONTROLLER_BUTTONS = [
     ),
 ]
 CONTROLLER_NUMBER_SENSORS = [
-    ExtNumberEntityDescription(
-        key=Tag.TCL.key,
-        check_16a_limit=True,
-        native_min_value=6,
-        native_max_value=32,
-        native_step=1,
-        mode=NumberMode.BOX,
-        native_unit_of_measurement=UnitOfElectricCurrent.AMPERE,
-        device_class=NumberDeviceClass.CURRENT,
-        entity_registry_enabled_default=False,
-        icon="mdi:current-ac",
-    ),
 ]
 CONTROLLER_SELECT_SENSORS = [
     ExtSelectEntityDescription(

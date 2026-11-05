@@ -12,10 +12,11 @@ from homeassistant.const import Platform, ATTR_ENTITY_ID
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from custom_components.goecharger_api2.pygoecharger_ha import INTG_TYPE
+from custom_components.goecharger_api2.pygoecharger_ha import (
+    INTG_TYPE, current_bounds, validate_current, require_acknowledgement, is_finite_number
+)
 from . import GoeChargerDataUpdateCoordinator, GoeChargerBaseEntity, Tag
 from .const import DOMAIN, NUMBER_SENSORS, CONTROLLER_NUMBER_SENSORS, ExtNumberEntityDescription
-from .temporary_current import current_bounds, validate_current, require_acknowledgement, is_finite_number
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -34,7 +35,8 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry, add_
                 else:
                     _LOGGER.debug(f"NUMBER async_setup_entry: not overwriting native_max_value for key {description.key} - {description.idx}")
 
-            entity = GoeChargerNumber(coordinator, description)
+            entity_class = GoeChargerTemporaryCurrentNumber if description.key == Tag.TCL.key else GoeChargerNumber
+            entity = entity_class(coordinator, description)
             entities.append(entity)
     else:
         for description in CONTROLLER_NUMBER_SENSORS:
@@ -59,38 +61,7 @@ class GoeChargerNumber(GoeChargerBaseEntity, NumberEntity):
             self.coordinator.entities[self.data_key] = self
 
     @property
-    def available(self):
-        if self.data_key == Tag.TCL.key:
-            try:
-                current_bounds(self.coordinator.data, self.coordinator.limit_to16a)
-                return super().available and Tag.TCL.key in self.coordinator.data
-            except (ValueError, TypeError):
-                return False
-        return super().available
-
-    @property
-    def extra_state_attributes(self):
-        if self.data_key == Tag.TCL.key:
-            return {"api_key": "tcl", "expires_after_seconds": 600}
-        return super().extra_state_attributes
-
-    @property
-    def native_min_value(self):
-        if self.data_key == Tag.TCL.key and self.available:
-            return current_bounds(self.coordinator.data, self.coordinator.limit_to16a)[0]
-        return super().native_min_value
-
-    @property
-    def native_max_value(self):
-        if self.data_key == Tag.TCL.key and self.available:
-            return current_bounds(self.coordinator.data, self.coordinator.limit_to16a)[1]
-        return super().native_max_value
-
-    @property
     def native_value(self):
-        if self.data_key == Tag.TCL.key:
-            value = (self.coordinator.data or {}).get(Tag.TCL.key)
-            return value if is_finite_number(value) else None
         try:
             value = None
             if self.coordinator.data is not None:
@@ -121,12 +92,6 @@ class GoeChargerNumber(GoeChargerBaseEntity, NumberEntity):
         return value
 
     async def async_set_native_value(self, value) -> None:
-        if self.data_key == Tag.TCL.key:
-            current = validate_current(value, self.coordinator.data, self.coordinator.limit_to16a)
-            # Repeating the same value renews the charger timer; never skip it.
-            result = await self.coordinator.async_write_key(Tag.TCL.key, current, self, require_ack=True)
-            require_acknowledgement(result, current)
-            return
         # _LOGGER.info(f"set_native {self.data_key} {value} idx? {self.entity_description.idx}) factor: {self.entity_description.factor} float? {self.entity_description.handle_as_float}")
         try:
             if self.entity_description.idx is not None:
@@ -194,3 +159,44 @@ class GoeChargerNumber(GoeChargerBaseEntity, NumberEntity):
                             blocking=False,
                         )
                     )
+
+
+class GoeChargerTemporaryCurrentNumber(GoeChargerNumber):
+    @property
+    def available(self):
+        if self.coordinator.intg_type != INTG_TYPE.CHARGER.value:
+            return False
+        try:
+            current_bounds(self.coordinator.data, self.coordinator.limit_to16a)
+            return super().available and Tag.TCL.key in self.coordinator.data
+        except (ValueError, TypeError):
+            return False
+
+    @property
+    def extra_state_attributes(self):
+        return {"api_key": "tcl", "expires_after_seconds": 600}
+
+    @property
+    def native_min_value(self):
+        if self.available:
+            return current_bounds(self.coordinator.data, self.coordinator.limit_to16a)[0]
+        return super().native_min_value
+
+    @property
+    def native_max_value(self):
+        if self.available:
+            return current_bounds(self.coordinator.data, self.coordinator.limit_to16a)[1]
+        return super().native_max_value
+
+    @property
+    def native_value(self):
+        value = (self.coordinator.data or {}).get(Tag.TCL.key)
+        return value if is_finite_number(value) else None
+
+    async def async_set_native_value(self, value):
+        if self.coordinator.intg_type != INTG_TYPE.CHARGER.value:
+            raise ValueError("Temporary current limits require a charger, not a Controller")
+        current = validate_current(value, self.coordinator.data, self.coordinator.limit_to16a)
+        # Repeating the same value renews the firmware timer.
+        result = await self.coordinator.async_write_key(Tag.TCL.key, current, self, require_ack=True)
+        require_acknowledgement(result, current)

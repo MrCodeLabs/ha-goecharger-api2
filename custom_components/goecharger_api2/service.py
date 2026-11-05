@@ -14,7 +14,7 @@ from custom_components.goecharger_api2.const import WAN
 from custom_components.goecharger_api2.pygoecharger_ha.const import INTG_TYPE
 from custom_components.goecharger_api2.pygoecharger_ha.keys import Tag
 
-from .temporary_current import validate_current, require_acknowledgement
+from .pygoecharger_ha import validate_current, require_acknowledgement
 
 _LOGGER: logging.Logger = logging.getLogger(__package__)
 
@@ -106,6 +106,8 @@ class GoeChargerApiV2Service():
         if not call.data.get("configid"):
             raise ServiceValidationError("Select a go-eCharger config entry explicitly")
         _, coordinator = self.get_coordinator(call)
+        if coordinator.intg_type != INTG_TYPE.CHARGER.value:
+            raise ServiceValidationError("Temporary current limits require a charger, not a Controller")
         try:
             current = validate_current(call.data.get("current"), coordinator.data, coordinator.limit_to16a)
             result = await coordinator.async_write_key(Tag.TCL.key, current, require_ack=True)
