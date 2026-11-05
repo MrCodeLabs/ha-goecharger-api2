@@ -14,7 +14,8 @@ blueprint:
     Daylight updates are skipped if any used power source is missing, non-numeric
     or non-finite. Disabled battery inputs are ignored. Skipping an update does
     not command the charger to stop and does not clear its previous averages.
-    This blueprint does not verify the age of otherwise numeric measurements.
+    Optional freshness checks use report/source timestamps, not value-change time.
+    The optional last-success helper records acknowledged writes, not physical charging.
 
     The zero values keep the go-eCharger from working with stale `pvopt_*` averages. The
     charger calculates these averages from the last values it has received, no matter how
@@ -75,6 +76,51 @@ blueprint:
           max: 1000000
           step: any
           mode: box
+
+    reliability:
+      name: Transmission and freshness (optional)
+      collapsed: true
+      input:
+        transmission_interval:
+          name: Transmission interval
+          description: Five seconds preserves the default. Faster updates are useful on local connections.
+          default: "/5"
+          selector:
+            select:
+              options:
+                - {label: "5 seconds", value: "/5"}
+                - {label: "2 seconds", value: "/2"}
+                - {label: "1 second", value: "/1"}
+        maximum_age_seconds:
+          name: Maximum measurement age
+          description: Zero disables age checking. HA report time is not necessarily the source measurement time.
+          default: 0
+          selector:
+            number: {min: 0, max: 3600, step: 1, unit_of_measurement: s, mode: box}
+        source_timestamp_entities:
+          name: Source timestamp sensors
+          description: Optional additional clocks. Every selected source clock must be valid and fresh when age checking is enabled.
+          default: []
+          selector:
+            entity:
+              multiple: true
+              filter: [{domain: sensor, device_class: timestamp}]
+        last_success_helper:
+          name: Acknowledged transmission time
+          description: Optional input_datetime with date and time. Use a dedicated helper and explicit charger target for each automation.
+          default: ""
+          selector:
+            entity:
+              filter: [{domain: input_datetime}]
+        night_mode:
+          name: Night behaviour
+          description: Real measurements are an explicit opt-in for an external controller; they change the original night-zero policy.
+          default: zeros
+          selector:
+            select:
+              options:
+                - {label: "Send zeros at night (default)", value: zeros}
+                - {label: "Send validated real measurements at night", value: measurements}
 
     grid_single:
       name: Grid Power - Single Entity
@@ -223,6 +269,20 @@ variables:
   # Preserve method precedence; an incomplete selected method must not fall back.
   # No grid method sends pgrid 0; phase lists use the first three, as before.
   # An empty entity ID marks an invalid selected phase method, not PV-only mode.
+  interval_pattern: !input transmission_interval
+  max_age: !input maximum_age_seconds
+  source_clocks: !input source_timestamp_entities
+  success_helper: !input last_success_helper
+  selected_night_mode: !input night_mode
+  sampled_at: '{{ as_timestamp(now()) }}'
+  helper_valid: >
+    {% if not success_helper %}
+      {{ true }}
+    {% else %}
+      {% set helper = states[success_helper] %}
+      {{ charger_config_entry != '' and helper is not none
+        and helper.attributes.get('has_date', false) and helper.attributes.get('has_time', false) }}
+    {% endif %}
   grid_sources: >
     {% if grid_single_entity %}
       {{ [grid_single_entity] }}
@@ -236,12 +296,46 @@ variables:
       {{ [] }}
     {% endif %}
   # Capture each used state once, so validation and arithmetic use the same sample.
-  power_samples: >
+  power_snapshots: >
     {% set ns = namespace(samples={}) %}
     {% for entity in (grid_sources + pv_list + (battery_list if battery_enable else [])) | unique %}
-      {% set ns.samples = dict(ns.samples, **{entity: states(entity)}) if entity else ns.samples %}
+      {% set sample = states[entity] if entity else none %}
+      {% if sample is not none %}
+        {% set ns.samples = dict(ns.samples, **{entity: dict(value=sample.state,
+          reported=as_timestamp(sample.last_reported, none))}) %}
+      {% endif %}
     {% endfor %}
     {{ ns.samples }}
+  power_samples: >
+    {% set ns = namespace(samples={}) %}
+    {% for entity, sample in power_snapshots.items() %}
+      {% set ns.samples = dict(ns.samples, **{entity: sample.value}) %}
+    {% endfor %}
+    {{ ns.samples }}
+  source_times: >
+    {% set ns = namespace(times=[]) %}
+    {% if max_age | float(0) > 0 %}
+      {% for entity in source_clocks %}
+        {% set ns.times = ns.times + [as_timestamp(states(entity), none)] %}
+      {% endfor %}
+    {% endif %}
+    {{ ns.times }}
+  measurements_fresh: >
+    {% set ns = namespace(ok=is_number(max_age) and max_age | float(-1) >= 0) %}
+    {% if max_age | float(0) > 0 %}
+      {% for entity in grid_sources + pv_list + (battery_list if battery_enable else []) %}
+        {% set stamp = power_snapshots.get(entity, {}).get('reported') %}
+        {% if not is_number(stamp) or not 0 <= sampled_at | float - stamp | float(0) <= max_age | float %}
+          {% set ns.ok = false %}
+        {% endif %}
+      {% endfor %}
+      {% for stamp in source_times %}
+        {% if not is_number(stamp) or not 0 <= sampled_at | float - stamp | float(0) <= max_age | float %}
+          {% set ns.ok = false %}
+        {% endif %}
+      {% endfor %}
+    {% endif %}
+    {{ ns.ok }}
   measurements_valid: >
     {% set ns = namespace(valid=pv_list | length > 0
       and is_number(multiplier) and multiplier | float(0) > 0) %}
@@ -294,13 +388,19 @@ variables:
 
 triggers:
   - trigger: time_pattern
-    seconds: /5
+    seconds: !input transmission_interval
     id: tick
   - trigger: sun
     event: sunset
     id: sunset
 
 actions:
+  - if:
+      - condition: template
+        value_template: '{{ not helper_valid }}'
+    then:
+      - stop: "Select a dedicated date/time helper and an explicit charger target."
+        error: true
   - if:
       - condition: template
         value_template: '{{ not charger_target_valid }}'
@@ -314,23 +414,50 @@ actions:
             id: tick
           - condition: template
             value_template: '{{ expand(car_connected_entity.entity_id) | selectattr("state", "eq", "on") | list | count > 0 }}'
-          - condition: sun
-            after: sunrise
-          - condition: sun
-            before: sunset
+          - condition: or
+            conditions:
+              - condition: template
+                value_template: "{{ selected_night_mode == 'measurements' }}"
+              - condition: and
+                conditions:
+                  - condition: sun
+                    after: sunrise
+                  - condition: sun
+                    before: sunset
         sequence:
           - condition: template
             alias: "Skip daylight update when a used measurement is invalid"
             value_template: >
-              {{ measurements_valid and is_number(pgrid_watts)
+              {{ measurements_valid and measurements_fresh and is_number(pgrid_watts)
                 and is_number(ppv_watts) and is_number(pakku_watts) }}
+          - variables:
+              expected_values: >
+                {{ dict(pGrid=(pgrid_watts | float) | round(0) | int, pPv=(ppv_watts | float) | round(0) | int, pAkku=(pakku_watts | float) | round(0) | int) }}
           - action: goecharger_api2.set_pv_data
+            response_variable: transmission_result
             data: >
               {% set payload = dict(
                 pgrid=(pgrid_watts | float) | round(0) | int,
                 ppv=(ppv_watts | float) | round(0) | int,
                 pakku=(pakku_watts | float) | round(0) | int) %}
               {{ dict(payload, configid=charger_config_entry) if charger_config_entry else payload }}
+          - if:
+              - condition: template
+                value_template: '{{ success_helper != "" }}'
+            then:
+              - condition: template
+                alias: Do not mark a rejected or incomplete API reply as successful
+                value_template: >
+                  {{ transmission_result is mapping and transmission_result.get('success') == 'true'
+                    and 'error' not in transmission_result
+                    and transmission_result.get('response') is mapping
+                    and transmission_result.response.get('ids') is mapping
+                    and transmission_result.response.ids == expected_values }}
+              - action: input_datetime.set_datetime
+                target:
+                  entity_id: '{{ success_helper }}'
+                data:
+                  timestamp: '{{ as_timestamp(now()) }}'
 
       # Night, car connected: zeros every 30 seconds (flushes stale averages)
       - conditions:
@@ -347,21 +474,65 @@ actions:
                   - condition: sun
                     before: sunset
           - condition: template
-            value_template: '{{ now().second % 30 < 5 }}'
+            value_template: '{{ selected_night_mode == "zeros" and now().second % 30 < interval_pattern[1:] | int(5) }}'
         sequence:
+          - variables:
+              expected_values: >
+                {{ dict(pGrid=0, pPv=0, pAkku=0) }}
           - action: goecharger_api2.set_pv_data
+            response_variable: transmission_result
             data: >
               {% set payload = dict(pgrid=0, ppv=0, pakku=0) %}
               {{ dict(payload, configid=charger_config_entry) if charger_config_entry else payload }}
+          - if:
+              - condition: template
+                value_template: '{{ success_helper != "" }}'
+            then:
+              - condition: template
+                alias: Do not mark a rejected or incomplete API reply as successful
+                value_template: >
+                  {{ transmission_result is mapping and transmission_result.get('success') == 'true'
+                    and 'error' not in transmission_result
+                    and transmission_result.get('response') is mapping
+                    and transmission_result.response.get('ids') is mapping
+                    and transmission_result.response.ids == expected_values }}
+              - action: input_datetime.set_datetime
+                target:
+                  entity_id: '{{ success_helper }}'
+                data:
+                  timestamp: '{{ as_timestamp(now()) }}'
 
       # Sunset: one immediate zero push, regardless of car connection
       - conditions:
           - condition: trigger
             id: sunset
+          - condition: template
+            value_template: "{{ selected_night_mode == 'zeros' }}"
         sequence:
+          - variables:
+              expected_values: >
+                {{ dict(pGrid=0, pPv=0, pAkku=0) }}
           - action: goecharger_api2.set_pv_data
+            response_variable: transmission_result
             data: >
               {% set payload = dict(pgrid=0, ppv=0, pakku=0) %}
               {{ dict(payload, configid=charger_config_entry) if charger_config_entry else payload }}
+          - if:
+              - condition: template
+                value_template: '{{ success_helper != "" }}'
+            then:
+              - condition: template
+                alias: Do not mark a rejected or incomplete API reply as successful
+                value_template: >
+                  {{ transmission_result is mapping and transmission_result.get('success') == 'true'
+                    and 'error' not in transmission_result
+                    and transmission_result.get('response') is mapping
+                    and transmission_result.response.get('ids') is mapping
+                    and transmission_result.response.ids == expected_values }}
+              - action: input_datetime.set_datetime
+                target:
+                  entity_id: '{{ success_helper }}'
+                data:
+                  timestamp: '{{ as_timestamp(now()) }}'
 
 mode: single

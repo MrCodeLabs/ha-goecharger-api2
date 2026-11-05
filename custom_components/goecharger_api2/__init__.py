@@ -639,7 +639,7 @@ class GoeChargerDataUpdateCoordinator(DataUpdateCoordinator):
                 _LOGGER.error(f"_async_update_data(): unexpected: {type(other).__name__} - {other}")
                 raise UpdateFailed() from other
 
-    async def async_write_key(self, key: str, value, entity: Entity = None) -> dict:
+    async def async_write_key(self, key: str, value, entity: Entity = None, *, require_ack: bool = False) -> dict:
         if self._CLIENT_COMMUNICATION_ERROR_TS + CLIENT_COMMUNICATION_ERROR_DELAY_IN_SECONDS > time.time():
             time_info = CLIENT_COMMUNICATION_ERROR_DELAY_IN_SECONDS - (time.time() - self._CLIENT_COMMUNICATION_ERROR_TS)
             _LOGGER.info(f"async_write_key(): skipping due to client communication error for the next {time_info} seconds")
@@ -649,7 +649,7 @@ class GoeChargerDataUpdateCoordinator(DataUpdateCoordinator):
             raise ValueError("async_write_key(): RESTART is TRIGGERED (waiting for random sleep delay)")
 
         try:
-            result = await self.bridge.write_value_to_key(key, value)
+            result = await self.bridge.write_value_to_key(key, value, require_ack=require_ack)
             self.handle_write_result("single", value, key, result, entity)
             return result
 

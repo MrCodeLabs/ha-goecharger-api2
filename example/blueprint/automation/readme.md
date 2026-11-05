@@ -1,5 +1,10 @@
 # go-eCharger PV Surplus Charging Blueprint
 
+Optional transmission intervals, freshness checks, acknowledged-write helpers
+and real night measurements are described in
+[PV transmission reliability](../../../docs/PV_RELIABILITY.md). Defaults keep
+the existing daytime/night/sunset behaviour.
+
 This blueprint enables automatic PV surplus charging for go-eCharger wallboxes by transmitting solar system data (grid power, PV generation, battery status) to the charger every 5 seconds during the day. At night it sends zero values, so the charger never works with stale surplus data.
 
 ## Requirements
@@ -125,8 +130,9 @@ and sunset zeros remain independent of measurement validity.
 **This is input validation, not a charging-stop policy.** Skipping transmission
 does not issue a Stop command or clear previous `pvopt_*` averages. Ensure your
 installation has an appropriate independent response to loss of measurement
-data. The blueprint does not check source timestamps or freshness: an old but
-numeric state passes validation. No fixed age threshold is assumed.
+data. Age checking is optional and disabled by default. When enabled, used HA
+report times and selected source timestamp sensors must be fresh; see the
+reliability documentation. No household-specific age threshold is assumed.
 
 The go-eCharger calculates its `pvopt_*` averages from the last values it has received, no matter how old they are. Without the zero values, a car that is (re)connected at night can start charging at sunrise on the basis of the previous day's surplus, even though the PV generation has not started yet.
 
