@@ -1,0 +1,525 @@
+blueprint:
+  name: go-eCharger managed charging
+  description: >
+    Optional load/phase limits, home-battery reserve and timed grid charging.
+    Requires a dedicated input_text helper (maximum length 255, no initial value)
+    and one enabled switch per charger. Use only one current/force controller.
+    A data failure or insufficient budget latches Stop; release Stop explicitly
+    after checking conditions. The automation never automatically clears Stop.
+    It is not an electrical protection or an independent watchdog.
+  domain: automation
+  author: MrCodeLabs
+  homeassistant:
+    min_version: 2024.6.0
+  input:
+    charger:
+      name: Charger and persistent control state
+      input:
+        charger_entry:
+          name: Target charger
+          selector:
+            config_entry: {integration: goecharger_api2}
+        enabled_entity:
+          name: Enable management
+          selector:
+            entity: {filter: [{domain: input_boolean}]}
+        memory_entity:
+          name: Dedicated persistent state helper
+          description: input_text with max 255; do not share, reset or edit while enabled.
+          selector:
+            entity: {filter: [{domain: input_text}]}
+        connected_entity:
+          name: Car connected
+          selector:
+            entity: {filter: [{domain: binary_sensor, integration: goecharger_api2}]}
+        force_entity:
+          name: Force state (frc)
+          selector:
+            entity: {filter: [{domain: select, integration: goecharger_api2}]}
+        current_entity:
+          name: Requested current (amp), or temporary limit (tcl) in temporary mode
+          description: In temporary mode select this charger's Temporary current limit entity, not amp or ama; a renamed entity is supported.
+          selector:
+            entity: {filter: [{domain: number, integration: goecharger_api2}]}
+        use_temporary_limit:
+          name: Use temporary current limit (tcl)
+          description: Requires the enabled tcl number entity and upstream Number write-error propagation (main 5c44c123 or a release containing it). Unmodified 2026.11.0 is not sufficient.
+          default: false
+          selector: {boolean: {}}
+    measurements:
+      name: Measurements (W, A, V)
+      input:
+        total_power_entity:
+          name: Total house plus EV power (W, positive consumption)
+          selector:
+            entity: {filter: [{domain: sensor, device_class: power}]}
+        grid_power_entity:
+          name: Grid power (W, import positive, export negative)
+          selector:
+            entity: {filter: [{domain: sensor, device_class: power}]}
+        ev_power_entity:
+          name: EV total power (W)
+          selector:
+            entity: {filter: [{domain: sensor, device_class: power, integration: goecharger_api2}]}
+        voltage_entities:
+          name: EV supply voltages (one or three, in matching phase order)
+          selector:
+            entity: {multiple: true, filter: [{domain: sensor, device_class: voltage}]}
+        ev_current_entities:
+          name: EV currents (same phases and order as voltages)
+          selector:
+            entity: {multiple: true, filter: [{domain: sensor, device_class: current, integration: goecharger_api2}]}
+        main_current_entities:
+          name: Main import currents (same electrical phase order)
+          description: Required when phase protection is enabled; use signed import-positive current sensors.
+          default: []
+          selector:
+            entity: {multiple: true, filter: [{domain: sensor, device_class: current}]}
+        source_clock_entity:
+          name: Optional source measurement timestamp
+          default: ""
+          selector:
+            entity: {filter: [{domain: sensor, device_class: timestamp}]}
+    limits:
+      name: Limits and recovery
+      input:
+        total_limit_w:
+          name: Maximum total house plus EV power
+          selector:
+            number: {min: 1000, max: 1000000, step: 100, unit_of_measurement: W, mode: box}
+        import_limit_w:
+          name: Maximum grid import (0 disables this additional limit)
+          default: 0
+          selector:
+            number: {min: 0, max: 1000000, step: 100, unit_of_measurement: W, mode: box}
+        phase_limit_a:
+          name: Main-phase target (0 disables phase limiting)
+          default: 0
+          selector:
+            number: {min: 0, max: 250, step: 0.5, unit_of_measurement: A, mode: box}
+        maximum_current_a:
+          name: Maximum managed current
+          default: 16
+          selector:
+            number: {min: 6, max: 32, step: 1, unit_of_measurement: A, mode: box}
+        reserve_w:
+          name: Power reserve below total/import targets
+          default: 300
+          selector:
+            number: {min: 0, max: 10000, step: 50, unit_of_measurement: W, mode: box}
+        maximum_age_s:
+          name: Maximum source report age
+          default: 90
+          selector:
+            number: {min: 5, max: 600, step: 1, unit_of_measurement: s, mode: box}
+        increase_interval_s:
+          name: Minimum time between 1 A increases
+          default: 60
+          selector:
+            number: {min: 10, max: 600, step: 1, unit_of_measurement: s, mode: box}
+    battery:
+      name: Optional home battery
+      collapsed: true
+      input:
+        battery_soc_entity:
+          name: Home battery SOC (%)
+          default: ""
+          selector:
+            entity: {filter: [{domain: sensor}]}
+        battery_power_entity:
+          name: Home battery power (W, discharge positive)
+          description: Select both battery sensors, or neither. Normalize signs before using.
+          default: ""
+          selector:
+            entity: {filter: [{domain: sensor, device_class: power}]}
+        battery_reserve_percent:
+          name: Reserve for the house
+          default: 30
+          selector:
+            number: {min: 0, max: 100, step: 1, unit_of_measurement: "%", mode: box}
+        battery_hysteresis_percent:
+          name: Battery recovery margin
+          default: 2
+          selector:
+            number: {min: 0, max: 20, step: 1, unit_of_measurement: "%", mode: box}
+        priority_mode:
+          name: Energy priority
+          default: surplus
+          selector:
+            select:
+              options:
+                - {label: "Use exported surplus; preserve the house battery", value: surplus}
+                - {label: "Prefer EV above the house battery reserve", value: prefer_ev}
+    schedule:
+      name: Optional timed grid charging
+      collapsed: true
+      input:
+        night_enabled:
+          name: Allow timed grid charging
+          default: false
+          selector: {boolean: {}}
+        night_start:
+          name: Window starts
+          default: "22:00:00"
+          selector: {time: {}}
+        morning_deadline:
+          name: Window ends
+          default: "07:00:00"
+          selector: {time: {}}
+        sunrise_cutoff:
+          name: Also stop grid boost at sunrise
+          default: true
+          selector: {boolean: {}}
+        night_battery_max_percent:
+          name: Grid boost only below this home-battery SOC (when configured)
+          default: 10
+          selector:
+            number: {min: 0, max: 100, step: 1, unit_of_measurement: "%", mode: box}
+
+variables:
+  entry: !input charger_entry
+  enable_id: !input enabled_entity
+  memory_id: !input memory_entity
+  car_id: !input connected_entity
+  force_id: !input force_entity
+  current_id: !input current_entity
+  temporary: !input use_temporary_limit
+  total_id: !input total_power_entity
+  grid_id: !input grid_power_entity
+  ev_id: !input ev_power_entity
+  volts: !input voltage_entities
+  ev_amps: !input ev_current_entities
+  main_amps: !input main_current_entities
+  source_clock: !input source_clock_entity
+  total_limit: !input total_limit_w
+  import_limit: !input import_limit_w
+  phase_limit: !input phase_limit_a
+  maximum_current: !input maximum_current_a
+  power_reserve: !input reserve_w
+  max_age: !input maximum_age_s
+  settle: !input increase_interval_s
+  soc_id: !input battery_soc_entity
+  battery_id: !input battery_power_entity
+  battery_reserve: !input battery_reserve_percent
+  battery_hysteresis: !input battery_hysteresis_percent
+  priority: !input priority_mode
+  scheduled: !input night_enabled
+  start_time: !input night_start
+  end_time: !input morning_deadline
+  cut_at_sunrise: !input sunrise_cutoff
+  night_soc: !input night_battery_max_percent
+  enabled: '{{ is_state(enable_id, "on") }}'
+  car: '{{ states(car_id) }}'
+  force: '{{ states(force_id) | int(-1) }}'
+  current: '{{ states(current_id) }}'
+  sampled_at: '{{ as_timestamp(now()) }}'
+  target_valid: >
+    {% set ns = namespace(ok=true) %}
+    {% for id in ev_amps %}
+      {% if config_entry_id(id) != entry %}{% set ns.ok = false %}{% endif %}
+    {% endfor %}
+    {{ ns.ok and entry != '' and config_entry_attr(entry, 'domain') == 'goecharger_api2'
+      and config_entry_id(car_id) == entry and config_entry_id(force_id) == entry
+      and config_entry_id(current_id) == entry and config_entry_id(ev_id) == entry
+      and current_id.startswith('number.') and force_id.startswith('select.')
+      and (not temporary or (state_attr(current_id, 'unit_of_measurement') == 'A'
+        and state_attr(current_id, 'device_class') == 'current'))
+      and ev_amps | length == volts | length and volts | length in [1, 3]
+      and ev_amps | unique | list | length == ev_amps | length
+      and volts | unique | list | length == volts | length }}
+  memo_raw: '{{ states(memory_id) | from_json({}) }}'
+  memo: '{{ memo_raw if memo_raw is mapping else {} }}'
+  memory_valid: >
+    {{ state_attr(memory_id, 'max') | int(0) >= 255
+      and (states(memory_id) == '' or (memo_raw is mapping and memo.get('v') == 1
+        and memo.get('owner') == entry and is_number(memo.get('base'))
+        and is_number(memo.get('at')) and memo.get('at') | float <= sampled_at | float)) }}
+  samples: >
+    {% set ns = namespace(samples={}) %}
+    {% for id in ([total_id, grid_id, ev_id] + volts + ev_amps
+      + (main_amps if phase_limit | float(0) > 0 else [])
+      + ([soc_id, battery_id] if soc_id or battery_id else [])) | unique %}
+      {% set s = states[id] if id else none %}
+      {% if s is not none %}
+        {% set ns.samples = dict(ns.samples, **{id: dict(value=s.state,
+          unit=s.attributes.get('unit_of_measurement'), reported=as_timestamp(s.last_reported, none))}) %}
+      {% endif %}
+    {% endfor %}
+    {{ ns.samples }}
+  settings_valid: >
+    {% set ns = namespace(ok=true) %}
+    {% for value in [total_limit, import_limit, phase_limit, maximum_current, power_reserve,
+      max_age, settle, battery_reserve, battery_hysteresis, night_soc] %}
+      {% if not is_number(value) or value | float < 0 %}{% set ns.ok = false %}{% endif %}
+    {% endfor %}
+    {{ ns.ok and total_limit | float(0) > 0 and maximum_current | float(0) >= 6
+      and max_age | float(0) > 0 and settle | float(0) > 0
+      and battery_reserve | float(101) <= 100 and night_soc | float(101) <= 100 }}
+  measurements_valid: >
+    {% set ns = namespace(ok=settings_valid) %}
+    {% set powers = [total_id, grid_id, ev_id] + ([battery_id] if battery_id else []) %}
+    {% set currents = ev_amps + (main_amps if phase_limit | float(0) > 0 else []) %}
+    {% for id in powers + volts + currents + ([soc_id] if soc_id else []) %}
+      {% set s = samples.get(id, {}) %}
+      {% set unit = 'W' if id in powers else 'V' if id in volts else 'A' if id in currents else '%' %}
+      {% if not is_number(s.get('value')) or not is_number(s.get('reported'))
+        or s.get('unit') != unit or not 0 <= sampled_at | float - s.get('reported', 0) | float <= max_age | float %}
+        {% set ns.ok = false %}
+      {% elif unit == 'V' and not 100 <= s.value | float <= 300 %}
+        {% set ns.ok = false %}
+      {% elif unit == 'A' and not -1000 <= s.value | float <= 1000 %}
+        {% set ns.ok = false %}
+      {% elif id in ev_amps and not 0 <= s.value | float <= 1000 %}
+        {% set ns.ok = false %}
+      {% elif unit == '%' and not 0 <= s.value | float <= 100 %}
+        {% set ns.ok = false %}
+      {% elif unit == 'W' and not -10000000 <= s.value | float <= 10000000 %}
+        {% set ns.ok = false %}
+      {% endif %}
+    {% endfor %}
+    {% if source_clock %}
+      {% set stamp = as_timestamp(states(source_clock), none) %}
+      {% if not is_number(stamp) or not 0 <= sampled_at | float - stamp | float(0) <= max_age | float %}
+        {% set ns.ok = false %}
+      {% endif %}
+    {% endif %}
+    {{ ns.ok and (not soc_id) == (not battery_id) and car in ['on', 'off']
+      and force in [0, 1, 2] and is_number(current)
+      and (phase_limit | float <= 0 or (main_amps | length == volts | length
+        and main_amps | unique | list | length == main_amps | length))
+      and (priority != 'prefer_ev' or soc_id != '')
+      and samples.get(total_id, {}).get('value', -1) | float(-1) >= 0
+      and samples.get(ev_id, {}).get('value', -1) | float(-1) >= 0 }}
+  minimum: '{{ [6, state_attr(current_id, "min") | float(6)] | max }}'
+  maximum: '{{ [maximum_current | float, state_attr(current_id, "max") | float(0)] | min }}'
+  base: '{{ memo.get("base", current | float if is_number(current) else 0) }}'
+  owns_current: >
+    {{ memo is mapping and memo.get('owner') == entry and is_number(memo.get('last'))
+      and is_number(current) and current | float == memo.last | float }}
+  battery_ready: >
+    {% set soc = samples.get(soc_id, {}).get('value', -1) | float(-1) %}
+    {{ soc_id != '' and soc > battery_reserve | float and
+      (soc >= battery_reserve | float + battery_hysteresis | float or memo.get('br', false)) }}
+  in_window: >
+    {% set start = today_at(start_time) %}
+    {% set end = today_at(end_time) %}
+    {% set local = now() %}
+    {% if start > end %}
+      {% if local >= start %}{% set end = end + timedelta(days=1) %}
+      {% else %}{% set start = start - timedelta(days=1) %}{% endif %}
+    {% endif %}
+    {% set sunrise = as_timestamp(state_attr('sun.sun', 'next_rising'), none) %}
+    {{ scheduled and start < end and as_timestamp(start) <= sampled_at | float < as_timestamp(end)
+      and (not cut_at_sunrise or (is_state('sun.sun', 'below_horizon')
+        and is_number(sunrise) and sampled_at | float < sunrise | float))
+      and (not soc_id or samples.get(soc_id, {}).get('value', 101) | float(101) <= night_soc | float) }}
+  boost: '{{ in_window or (priority == "prefer_ev" and battery_ready) }}'
+  budget: >
+    {% if not measurements_valid %}
+      {{ 0 }}
+    {% else %}
+    {% set ev = samples.get(ev_id, {}).get('value', 0) | float(0) %}
+    {% set load = samples.get(total_id, {}).get('value', 0) | float(0) %}
+    {% set grid = samples.get(grid_id, {}).get('value', 0) | float(0) %}
+    {% set battery = samples.get(battery_id, {}).get('value', 0) | float(0) %}
+    {% set ns = namespace(watts=total_limit | float - power_reserve | float - ([0, load - ev] | max), voltage=0, phase_cap=maximum | float) %}
+    {% if import_limit | float > 0 %}
+      {% set ns.watts = [ns.watts, import_limit | float - power_reserve | float - grid + ev] | min %}
+    {% endif %}
+    {% if not boost %}
+      {% set ns.watts = [ns.watts, ev - grid - ([0, battery] | max) - power_reserve | float] | min %}
+    {% endif %}
+    {% for id in volts %}{% set ns.voltage = ns.voltage + samples.get(id, {}).get('value', 0) | float(0) %}{% endfor %}
+    {% if phase_limit | float > 0 %}
+      {% for id in main_amps %}
+        {% set ev_current = samples.get(ev_amps[loop.index0], {}).get('value', 0) | float(0) %}
+        {% set main_current = samples.get(id, {}).get('value', 1000) | float(1000) %}
+        {% set ns.phase_cap = [ns.phase_cap, phase_limit | float - main_current + ev_current] | min %}
+      {% endfor %}
+    {% endif %}
+    {{ [maximum | float, ns.phase_cap, (ns.watts / ns.voltage if ns.voltage > 0 else 0)] | min | round(0, 'floor') | int }}
+    {% endif %}
+  target_current: >
+    {% set target = budget | int(0) %}
+    {% if target > current | float(0) %}
+      {% if sampled_at | float - memo.get('at', sampled_at) | float < settle | float %}
+        {% set target = current | float(0) %}
+      {% else %}{% set target = [target, current | float(0) + 1] | min %}{% endif %}
+    {% endif %}
+    {{ target | int }}
+  pending_fault: '{{ memo.get("pending", false) }}'
+  external_change: >
+    {{ (memo.get('last') is not none and not owns_current and not pending_fault)
+      or (memo.get('fo', false) and force == 0) }}
+
+triggers:
+  - trigger: time_pattern
+    seconds: /5
+  - trigger: homeassistant
+    event: start
+  - trigger: state
+    entity_id: !input enabled_entity
+  - trigger: state
+    entity_id: !input connected_entity
+
+actions:
+  - if:
+      - condition: template
+        value_template: '{{ not target_valid }}'
+    then:
+      - stop: Select matching charger entities and one or three correctly ordered phases.
+        error: true
+  - if:
+      - condition: template
+        value_template: '{{ not memory_valid }}'
+    then:
+      - if:
+          - condition: template
+            value_template: '{{ enabled and car != "off" and force != 1 }}'
+        then:
+          - action: select.select_option
+            target: {entity_id: !input force_entity}
+            data: {option: "1"}
+      - stop: Persistent helper is missing, corrupt, too small or owned by another charger.
+        error: true
+  - choose:
+      - conditions: '{{ not enabled or car == "off" }}'
+        sequence:
+          - if:
+              - condition: template
+                value_template: '{{ not is_state(car_id, "off") and (owns_current or memo.get("fo", false)) and not is_state(force_id, "1") }}'
+            then:
+              - action: select.select_option
+                target: {entity_id: !input force_entity}
+                data: {option: "1"}
+              - wait_template: '{{ is_state(force_id, "1") }}'
+                timeout: "00:00:05"
+                continue_on_timeout: false
+          - if:
+              - condition: template
+                value_template: >
+                  {{ owns_current and base | float != current | float and
+                    state_attr(current_id, 'min') | float(6) <= base | float <= state_attr(current_id, 'max') | float(0) }}
+            then:
+              - condition: template
+                alias: Restore only while disconnected or confirmed stopped
+                value_template: '{{ is_state(car_id, "off") or is_state(force_id, "1") }}'
+              # The selected Number must propagate write errors; do not continue on error.
+              - action: number.set_value
+                target: {entity_id: !input current_entity}
+                data: {value: '{{ base | float }}'}
+              - wait_template: '{{ states(current_id) | float(-1) == base | float }}'
+                timeout: "00:00:05"
+                continue_on_timeout: false
+          - if:
+              - condition: template
+                value_template: '{{ is_state(car_id, "off") and memo.get("fo", false) and is_state(force_id, "2") }}'
+            then:
+              - action: select.select_option
+                target: {entity_id: !input force_entity}
+                data: {option: "0"}
+              - wait_template: '{{ is_state(force_id, "0") }}'
+                timeout: "00:00:05"
+                continue_on_timeout: false
+          - action: input_text.set_value
+            target: {entity_id: !input memory_entity}
+            data: {value: ""}
+      - conditions: >
+          {{ not measurements_valid or pending_fault or external_change or budget | int < minimum | float }}
+        sequence:
+          - if:
+              - condition: template
+                value_template: '{{ force != 1 }}'
+            then:
+              - action: select.select_option
+                target: {entity_id: !input force_entity}
+                data: {option: "1"}
+              - wait_template: '{{ is_state(force_id, "1") }}'
+                timeout: "00:00:05"
+                continue_on_timeout: false
+          - variables:
+              restore_after_stop: >
+                {{ memo.get('fo', false) and owns_current and base | float != current | float
+                  and state_attr(current_id, 'min') | float(6) <= base | float <= state_attr(current_id, 'max') | float(0) }}
+          - if:
+              - condition: template
+                value_template: '{{ restore_after_stop }}'
+            then:
+              - condition: template
+                value_template: '{{ is_state(force_id, "1") }}'
+              - action: number.set_value
+                target: {entity_id: !input current_entity}
+                data: {value: '{{ base | float }}'}
+              - wait_template: '{{ states(current_id) | float(-1) == base | float }}'
+                timeout: "00:00:05"
+                continue_on_timeout: false
+          - action: input_text.set_value
+            target: {entity_id: !input memory_entity}
+            data:
+              value: >
+                {{ dict(v=1, owner=entry, base=(current | float if external_change and not owns_current else base | float),
+                  last=(base | float if restore_after_stop else none if external_change and not owns_current else memo.get('last')),
+                  at=memo.get('at', sampled_at), fo=false, br=battery_ready, pending=pending_fault,
+                  reason=('uncertain' if pending_fault else 'manual' if external_change else 'data' if not measurements_valid else 'budget')) | to_json }}
+      - conditions: '{{ force == 1 }}'
+        sequence:
+          - if:
+              - condition: template
+                value_template: '{{ memo.get("v") == 1 and memo.get("fo", false) }}'
+            then:
+              - action: input_text.set_value
+                target: {entity_id: !input memory_entity}
+                data: {value: '{{ dict(memo, fo=false, reason="manual_stop") | to_json }}'}
+          - stop: Stop remains latched until explicitly released by the user.
+    default:
+      - variables:
+          changed: '{{ target_current | int != current | float }}'
+          renew: '{{ temporary and sampled_at | float - memo.get("renew", 0) | float >= 60 }}'
+          new_time: '{{ sampled_at if changed else memo.get("at", sampled_at) }}'
+          next_memo: >
+            {{ dict(v=1, owner=entry, base=base | float, last=(target_current if changed or renew else memo.get('last')),
+              at=new_time, renew=(sampled_at if changed or renew else memo.get('renew', 0)), fo=memo.get('fo', false), br=battery_ready, pending=true, reason='write') }}
+      - if:
+          - condition: template
+            value_template: '{{ changed or renew }}'
+        then:
+          - condition: template
+            alias: Recheck manual edits immediately before a current command
+            value_template: '{{ not is_state(force_id, "1") and states(current_id) | float(-1) == current | float(-2) }}'
+          - action: input_text.set_value
+            target: {entity_id: !input memory_entity}
+            data: {value: '{{ next_memo | to_json }}'}
+          # A same-value renewal must still call Number, even when HA state already matches.
+          - action: number.set_value
+            target: {entity_id: !input current_entity}
+            data: {value: '{{ target_current | int }}'}
+          - wait_template: '{{ states(current_id) | float(-1) == target_current | int }}'
+            timeout: "00:00:05"
+            continue_on_timeout: false
+      - variables:
+          desired_force: '{{ 2 if boost else 0 if memo.get("fo", false) and force == 2 else force }}'
+          next_force_owned: '{{ (boost and force == 0) or (boost and memo.get("fo", false)) }}'
+      - if:
+          - condition: template
+            value_template: '{{ desired_force != force }}'
+        then:
+          - action: input_text.set_value
+            target: {entity_id: !input memory_entity}
+            data: {value: '{{ dict(next_memo, fo=next_force_owned, pending=true) | to_json }}'}
+          - condition: template
+            alias: A late manual Stop always wins
+            value_template: '{{ not is_state(force_id, "1") }}'
+          - action: select.select_option
+            target: {entity_id: !input force_entity}
+            data: {option: '{{ desired_force }}'}
+          - wait_template: '{{ is_state(force_id, desired_force | string) }}'
+            timeout: "00:00:05"
+            continue_on_timeout: false
+      - action: input_text.set_value
+        target: {entity_id: !input memory_entity}
+        data:
+          value: '{{ dict(next_memo, fo=next_force_owned, pending=false, reason=("timed" if in_window else "battery" if boost else "surplus")) | to_json }}'
+
+mode: queued
+max: 2
+max_exceeded: silent
