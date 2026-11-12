@@ -1,0 +1,2 @@
+ha-blueprint-test-harness @ https://github.com/OliEder/ha-blueprint-test-harness/releases/download/v0.4.1/ha_blueprint_test_harness-0.4.1-py3-none-any.whl#sha256=3397197e09ba3f5175e74a258ab24acec6738f835ef01e68d901f2bdd0ac93f8
+pytest-homeassistant==2026.11.0
