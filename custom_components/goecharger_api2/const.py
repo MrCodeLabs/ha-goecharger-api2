@@ -36,7 +36,6 @@ If you have any issues with this you need to open an issue here:
 
 SERVICE_SET_PV_DATA: Final = "set_pv_data"
 SERVICE_STOP_CHARGING: Final = "stop_charging"
-SERVICE_SET_TEMPORARY_CURRENT: Final = "set_temporary_current_limit"
 CONF_11KWLIMIT: Final = "limit_to_11kw"
 CONF_INTEGRATION_TYPE = "integration_type"
 
@@ -191,8 +190,8 @@ BINARY_SENSORS = [
     ),
     ExtBinarySensorEntityDescription(
         key=Tag.CTRLS.key,
+        tuple_idx=[0, 2], # when using the 'tuple_idx', a 'translation_key' must be also present!
         translation_key="ctrls_0_paired", # important! 'translation_key' must be allways lower case!!!
-        tuple_idx=[0, 2],
         entity_category=EntityCategory.DIAGNOSTIC,
         device_class=None,
         icon="mdi:gamepad-square-outline",
@@ -200,8 +199,8 @@ BINARY_SENSORS = [
     ),
     ExtBinarySensorEntityDescription(
         key=Tag.CTRLS.key,
+        tuple_idx=[0, 3], # when using the 'tuple_idx', a 'translation_key' must be also present!
         translation_key="ctrls_0_connected",  # important! 'translation_key' must be allways lower case!!!
-        tuple_idx=[0, 3],
         entity_category=EntityCategory.DIAGNOSTIC,
         device_class=None,
         icon="mdi:gamepad-square",
@@ -703,7 +702,7 @@ NUMBER_SENSORS = [
         native_min_value=6,
         native_max_value=32,
         native_step=1,
-        mode=NumberMode.BOX,
+        mode=NumberMode.SLIDER,
         native_unit_of_measurement=UnitOfElectricCurrent.AMPERE,
         device_class=NumberDeviceClass.CURRENT,
         icon="mdi:current-ac",
@@ -1427,6 +1426,16 @@ SENSOR_SENSORS = [
         device_class=None,
         icon="mdi:button-pointer",
         entity_registry_enabled_default=True
+    ),
+    ExtSensorEntityDescription(
+        key=Tag.LBP.key,
+        translation_key="lbp_delta_millis",
+        differential_base_key=Tag.RBT.key,
+        native_unit_of_measurement=UnitOfTime.MILLISECONDS,
+        state_class=SensorStateClass.MEASUREMENT,
+        device_class=None,
+        icon="mdi:button-pointer",
+        entity_registry_enabled_default=False
     ),
     ExtSensorEntityDescription(
         key=Tag.LBP.key,

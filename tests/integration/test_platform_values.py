@@ -8,6 +8,7 @@ from datetime import datetime, time
 
 import pytest
 from homeassistant.components.sensor import SensorDeviceClass
+from homeassistant.exceptions import HomeAssistantError
 
 from custom_components.goecharger_api2.binary_sensor import GoeChargerApiV2BinarySensor
 from custom_components.goecharger_api2.const import (
@@ -49,6 +50,7 @@ SENSOR_CASES = [
     ("differential base", {"x": 100, "rbt": 150}, dict(key="x", differential_base_key="rbt"), 50),
     ("differential base zero", {"x": 100, "rbt": 0}, dict(key="x", differential_base_key="rbt"), 100),
     ("differential and factor", {"x": 100, "rbt": 1150}, dict(key="x", differential_base_key="rbt", factor=10), 105),
+    ("differential in millis", {"lbp": 123456, "rbt": 124987}, dict(key="lbp", differential_base_key="rbt"), 1531),
     ("differential base missing", {"x": 100}, dict(key="x", differential_base_key="rbt"), None),
     ("datetime", {"x": datetime(2026, 10, 29, 8, 30, 45)}, dict(key="x"), "2026-10-29 08:30"),
     ("time", {"x": time(7, 5, 9)}, dict(key="x"), "07:05"),
@@ -189,11 +191,12 @@ async def test_number_set_value_writes_the_whole_list(hass, description, value, 
     coordinator.async_write_key.assert_awaited_once_with("lop", expected, number, require_ack=False)
 
 
-async def test_number_set_value_swallows_write_errors(hass):
+async def test_number_set_value_raises_write_errors(hass):
     from unittest.mock import AsyncMock
     number, coordinator = _number(hass, {"amp": 6}, key="amp")
     coordinator.async_write_key = AsyncMock(side_effect=ValueError("down"))
-    assert await number.async_set_native_value(10) == "unavailable"
+    with pytest.raises(HomeAssistantError):
+        await number.async_set_native_value(10)
 
 
 @pytest.mark.parametrize("reply", [{}, {"err": "rejected"}, {"tcl": True}, {"tcl": 8}, None])
@@ -253,19 +256,19 @@ LIMIT_CASES = [
 
 @pytest.mark.parametrize("key, value, amp_value, expected", [c[1:] for c in LIMIT_CASES], ids=[c[0] for c in LIMIT_CASES])
 async def test_number_amp_limits_adjust_amp_entity(hass, key, value, amp_value, expected):
-    from pytest_homeassistant_custom_component.common import async_mock_service
+    from pytest_homeassistant.common import async_mock_service
     calls = async_mock_service(hass, "number", "set_value")
     number, coordinator = _number(hass, {key: value}, key=key)
     number.hass = hass
     coordinator.entities["amp"] = _amp(amp_value)
-    number.check_amp_min_max(value)
+    number.check_entity_min_max_bounds(value)
     await hass.async_block_till_done()
     assert [c.data["value"] for c in calls] == ([] if expected is None else [expected])
 
 
 async def test_number_without_amp_entity_ignores_limits(hass):
     number, _ = _number(hass, {"ama": 10}, key="ama")
-    number.check_amp_min_max(10)  # no amp entity registered: must not raise
+    number.check_entity_min_max_bounds(10)  # no amp entity registered: must not raise
 
 
 # ----------------------------------------------------------------------------- select
